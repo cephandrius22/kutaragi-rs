@@ -18,15 +18,6 @@ use util::{perspective_divide, Triangle};
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
-const BOX_SIZE: i16 = 64;
-
-/// Representation of the application state. In this example, a box will bounce around the screen.
-struct World {
-    box_x: i16,
-    box_y: i16,
-    velocity_x: i16,
-    velocity_y: i16,
-}
 
 fn set_pixel(frame: &mut [u8], x: u32, y: u32, color: &mut [u8; 4]) {
     let index: usize = ((y * WIDTH * 4) + (x * 4)) as usize;
@@ -73,14 +64,22 @@ fn line(frame: &mut [u8], color: &mut [u8; 4], x0: u32, x1: u32, y0: u32, y1: u3
     }
 }
 
-fn convert_to_ndc(v: &mut Vec2, width: f32, height: f32) {
-    v.x = (v.x + (width / 2.0)) / width;
-    v.y = (v.y + (height / 2.0)) / height;
+fn convert_to_ndc(v: Vec2, width: u32, height: u32) -> Vec2 {
+    let fwidth = width as f32;
+    let fheight = height as f32;
+    return Vec2::new(
+        (v.x + (fwidth as f32 / 2.0)) / fwidth,
+        (v.y + (fheight as f32/ 2.0)) / fheight,
+    )
 }
 
-fn convert_to_pixel(v: &mut Vec2, width: f32, height: f32) {
-    v.x = v.x * width;
-    v.y = (1.0 - v.y) * height;
+fn convert_to_pixel(v: Vec2, width: u32, height: u32) -> Vec2 {
+    let fwidth = width as f32;
+    let fheight = height as f32;
+    return Vec2::new(
+        v.x * fwidth,
+        (1.0 - v.y) * fheight,
+    );
 }
 
 fn main() -> Result<(), Error> {
@@ -102,8 +101,6 @@ fn main() -> Result<(), Error> {
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
-    let mut world = World::new();
-
     let mut triangles = Vec::new();
     triangles.push(Triangle::new(
         Vec3::new(-50.0, 0.0, 0.0),
@@ -120,7 +117,6 @@ fn main() -> Result<(), Error> {
         // Draw the current frame
         if let Event::RedrawRequested(_) = event {
             if let Err(err) = pixels.render() {
-                // world.draw(pixels.get_frame_mut());
                 error!("pixels.render() failed: {err}");
                 *control_flow = ControlFlow::Exit;
                 return;
@@ -131,10 +127,10 @@ fn main() -> Result<(), Error> {
         }
 
         let diff = orig.elapsed().unwrap();
-        let rotation = Mat4::from_rotation_x(diff.as_secs_f32());
+        // let rotation = Mat4::from_rotation_x(diff.as_secs_f32());
 
         let mut color: [u8; 4] = [0x5e, 0x48, 0xe8, 0xff];
-        let mvp: Mat4 = projection * translation * rotation;
+        let mvp: Mat4 = projection * translation;// * rotation;
         // let mvp: Mat4 = projection * rotation * translation;
 
         for tri in &triangles {
@@ -142,44 +138,42 @@ fn main() -> Result<(), Error> {
             let v2 = mvp * Vec4::new(tri.v2.x, tri.v2.y, tri.v2.z, 1.0);
             let v3 = mvp * Vec4::new(tri.v3.x, tri.v3.y, tri.v3.z, 1.0);
 
-            let mut s1 = perspective_divide(v1);
-            let mut s2 = perspective_divide(v2);
-            let mut s3 = perspective_divide(v3);
+            let s1 = perspective_divide(v1);
+            let s2 = perspective_divide(v2);
+            let s3 = perspective_divide(v3);
 
-            // TODO: probably should just have these functions
-            // return a vec2 and now use references.
-            convert_to_ndc(&mut s1, WIDTH as f32, HEIGHT as f32);
-            convert_to_ndc(&mut s2, WIDTH as f32, HEIGHT as f32);
-            convert_to_ndc(&mut s3, WIDTH as f32, HEIGHT as f32);
-            convert_to_pixel(&mut s1, WIDTH as f32, HEIGHT as f32);
-            convert_to_pixel(&mut s2, WIDTH as f32, HEIGHT as f32);
-            convert_to_pixel(&mut s3, WIDTH as f32, HEIGHT as f32);
+            let s1_ndc = convert_to_ndc(s1, WIDTH, HEIGHT);
+            let s2_ndc = convert_to_ndc(s2, WIDTH, HEIGHT);
+            let s3_ndc = convert_to_ndc(s3, WIDTH, HEIGHT);
+            let s1_pixel = convert_to_pixel(s1_ndc, WIDTH, HEIGHT);
+            let s2_pixel = convert_to_pixel(s2_ndc, WIDTH, HEIGHT);
+            let s3_pixel = convert_to_pixel(s3_ndc, WIDTH, HEIGHT);
 
             line(
                 pixels.get_frame_mut(),
                 &mut color,
-                s1.x as u32,
-                s2.x as u32,
-                s1.y as u32,
-                s2.y as u32,
+                s1_pixel.x as u32,
+                s2_pixel.x as u32,
+                s1_pixel.y as u32,
+                s2_pixel.y as u32,
             );
 
             line(
                 pixels.get_frame_mut(),
                 &mut color,
-                s1.x as u32,
-                s3.x as u32,
-                s1.y as u32,
-                s3.y as u32,
+                s1_pixel.x as u32,
+                s3_pixel.x as u32,
+                s1_pixel.y as u32,
+                s3_pixel.y as u32,
             );
 
             line(
                 pixels.get_frame_mut(),
                 &mut color,
-                s2.x as u32,
-                s3.x as u32,
-                s2.y as u32,
-                s3.y as u32,
+                s2_pixel.x as u32,
+                s3_pixel.x as u32,
+                s2_pixel.y as u32,
+                s3_pixel.y as u32,
             );
         }
 
@@ -200,57 +194,7 @@ fn main() -> Result<(), Error> {
                 }
             }
 
-            // Update internal state and request a redraw
-            world.update();
             window.request_redraw();
         }
     });
-}
-
-impl World {
-    /// Create a new `World` instance that can draw a moving box.
-    fn new() -> Self {
-        Self {
-            box_x: 24,
-            box_y: 16,
-            velocity_x: 1,
-            velocity_y: 1,
-        }
-    }
-
-    /// Update the `World` internal state; bounce the box around the screen.
-    fn update(&mut self) {
-        if self.box_x <= 0 || self.box_x + BOX_SIZE > WIDTH as i16 {
-            self.velocity_x *= -1;
-        }
-        if self.box_y <= 0 || self.box_y + BOX_SIZE > HEIGHT as i16 {
-            self.velocity_y *= -1;
-        }
-
-        self.box_x += self.velocity_x;
-        self.box_y += self.velocity_y;
-    }
-
-    /// Draw the `World` state to the frame buffer.
-    ///
-    /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
-    fn draw(&self, frame: &mut [u8]) {
-        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            let x = (i % WIDTH as usize) as i16;
-            let y = (i / WIDTH as usize) as i16;
-
-            let inside_the_box = x >= self.box_x
-                && x < self.box_x + BOX_SIZE
-                && y >= self.box_y
-                && y < self.box_y + BOX_SIZE;
-
-            let rgba = if inside_the_box {
-                [0x5e, 0x48, 0xe8, 0xff]
-            } else {
-                [0x48, 0xb2, 0xe8, 0xff]
-            };
-
-            pixel.copy_from_slice(&rgba);
-        }
-    }
 }
